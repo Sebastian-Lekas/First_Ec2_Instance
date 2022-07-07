@@ -1,0 +1,28 @@
+from aws_cdk import (
+    aws_lambda as _lambda,
+    aws_apigateway as apigw,
+    core
+    #import lambda and api gateway library
+)
+
+class LambdaStack(core.Stack):
+    def __init__(self, scope: core.Construct, id: str, kwargs) -> None:
+        #constructor takes in scope (application created in app.py, id is the label for stack, and additional arguments such as the environment you want to deploy in) 
+        super().__init__(scope, id, kwargs)
+        
+        hello_function = _lambda_function(
+            #pass arguments in constructor
+            self, 'WelcomeHandler',
+            runtime = _lambda.Runtime.PYTHON_3_7,
+            #part of aws cdk library
+            code = _lambda.Code.asset('lambda-api'),
+            #Where is code located ^ 
+            handler = 'welcome.handler'
+            )
+            
+            apigw.Lambdarestapi(
+            #create api gateway and rest api
+                self, 'Endpoint'. 
+                handler=hello_function
+                #links lambda function to api gateway
+            )
