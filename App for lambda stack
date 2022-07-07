@@ -1,0 +1,13 @@
+import os 
+from aws_cdk import core
+
+from infrastructure_cdk.lambda_stack import LambdaStack
+#import new class and file from lambda stack we created
+
+app = core.app()
+LambdaStack(app, "LambdaStack",
+    env=core.Environment(account = os.environ['CDK_DEFAULT_ACCOUNT'],
+    region=os.environ['CDK_DEFAULT_ACCOUNT'] ))
+    #app is passed through cdkstack as the scope (parameter), infrastructure-cdk is the label of the stack (arbitrary), pass enviornment information to pass stack (region) 
+
+app.synth()
