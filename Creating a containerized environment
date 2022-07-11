@@ -1,0 +1,44 @@
+from aws_cdk import (
+    aws_ecs as ecs,
+    aws_ecr_assets as ecs_assets,
+    aws_ecs_patterns as ecs_patterns,
+    core
+    #import ecs, (elastic container service) this is a container management service
+)
+
+class EcsStack(core.Stack):
+    def __init__(self, scope: core.Construct, id: str, vpc, kwargs) -> None:
+        #constructor takes in scope (application created in app.py, id is the label for stack, and additional arguments such as the environment you want to deploy in) 
+        super().__init__(scope, id, kwargs)
+        
+        cluster = ecs.Cluster(self, "Globomantics-cluster", vpc = vpc)
+        #create cluster and link network stack 
+        
+        image_asset = ecs_assets.DockerImageAsset(self, "Globomantics-Landing-Page",
+                                                        directory="./globomantics-container-app")
+        #location of file, directory, location of container app
+        
+        image = ecs.ContainerImage.from_docer_image_asset(image_asset)
+        #ecr repository 
+        
+        ecs_patterns.ApplicationLoadBalanceFargateService(self, "Globomantics-Fargate",
+                                                            cluster = cluster, 
+                                                            cpu = 256, 
+                                                            memory_limit_mib = 512,
+                                                            #set limitations
+                                                            desired_count = 3,
+                                                            #specify number of tasks 
+                                                            listener_port = 80,
+                                                            task_image_options = ecs_patterns.ApplicationLoadBalancedTaskImageOptions(
+                                                                #provision image for container to use
+                                                                image = image, 
+                                                                container_name = "Globomantics-Landing-Page",
+                                                                #name of container that will be run
+                                                                container_port = 80
+                                                                ),
+                                                            public_load_balancer = True
+                                                            #so users can access application 
+                                                            
+                                                            
+                                                            
+                                                            )
