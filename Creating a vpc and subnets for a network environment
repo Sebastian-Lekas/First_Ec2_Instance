@@ -1,0 +1,81 @@
+from aws_cdk import (
+    aws_ecs as ecs,
+    core
+    #import ecs, (elastic container service) this is a container management service
+)
+
+class NetworkStack(core.Stack):
+    def __init__(self, scope: core.Construct, id: str, 
+        cidr =          "10.0.0.0/16",
+        subnet_mask =        24,
+        nat_gateway =   1,
+        db_port =       5432,
+            kwargs) -> None:
+        #constructor takes in scope (application created in app.py, id is the label for stack, and additional arguments such as the environment you want to deploy in) 
+        
+        
+        super().__init__(scope, id, kwargs)
+        
+        #build the vpc and subnets
+        self.vpc = ec2.Vpc(self, "VPC",
+                            max_azs = 6,
+                            #specify number of az's the vps will be in, create one subnet per az
+                            cidr = cidr,
+                            nat_gateway = nat_gateway,
+                            subnet_configuration = [ec2.SubnetConfiguration(
+                                            subnet_type = ec2.SubnetType.PUBLIC,
+                                            name        = "Public",
+                                            cidr_mask   = subnet_mask
+                                ),
+                                ec2.SubnetConfiguration(
+                                            subnet_type = ec2.SubnetType.PRIVATE,
+                                            name        = "Private",
+                                            cidr_mask   = subnet_mask
+                                ),
+                                ec2.SubnetConfiguration(
+                                            subnet_type = ec2.SubnetType.ISOLATED,
+                                            name        = "DB",
+                                            cidr_mask   = subnet_mask
+                                            #Isolated means to route to nat gateway 
+                                ),
+                                
+                                ]
+                             )
+        #firewall rules in the form of network ACL rules to VPC
+        #store all private subnets in variable
+        private_subnets = self.vpc.private_subnets
+        isolated_subnets = self.vpc.isolated_subnets 
+        
+        #in an isolated subnet, you normally only allow traffic from the private subnet and through the db port
+        isolated_nacl = ec2.NetworkAcl(self, "DBNacl"
+        #specify vpc you want nacl to be created in, and the subnets you want the nacl to be attached to
+                                        vpc = self.vpc,
+                                        subnet_selection = ec2.SubnetSelection(subnets=isolated_subnets)
+                                        )
+                                        
+        #loop throuhg all private subnets to allow traffic to flow from private subnets to protected subnets through Datebase (DB) port
+        for id, subnet in enumerate(private_subnets, start=1):
+            isolated_nacl.add_entry("DbNACLIngress{0}".format(id*100),
+                                    rule_number = id*100,
+                                    cidr        = ec2.AclCidr.ipv4(subnet.node.default_child.cidr_block),
+                                    #defaul_child represent cfn resource created by construct, can retrieve cidr block of the private subnet
+                                    #You can think of Constructs as Cloud components. We use them to encapsulate logic, which we can reuse
+                                    #throughout our infrastructure code.
+                                    traffic     = ec2.AclTraffic.tcp_port_range(db_port, db_port),
+                                    #tcp port we are allowing into the firewall, tcp port will be the db port we specify in the class constructor
+                                    #db-port default value of 5432 value specified above
+                                    rule_action = ec2.Action.ALLOW,
+                                    #allow traffic to flow
+                                    direction   = ec2.TrafficDirection.INGRESS
+                                    #allow traffic to flow inbound 
+                                    
+                                    )
+            isolated_nacl.add_entry("DbNACLEgress{0}".format(id*100),
+                                    rule_number = id*100,
+                                    cidr        = ec2.AclCidr.ipv4(subnet.node.default_child.cidr_block),
+                                    traffic     = ec2.AclTraffic.tcp_port_range(1024, 65535), #possible ports db can respond on RFC 6056
+                                    rule_action = ec2.Action.ALLOW,
+                                    direction   = ec2.TrafficDirection.EGRESS
+                                    
+                                    )
+        
