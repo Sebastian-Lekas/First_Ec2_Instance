@@ -1,0 +1,103 @@
+from aws_cdk import (
+    aws_ec2 as ec2,
+    aws_elasticloadbalancingv2 as elb,
+    aws_autoscalig as autoscaling,
+    aws_iam as iam,
+    core
+    #import ecs, (elastic container service) this is a container management service
+)
+
+class InstanceStack(core.Stack):
+    def __init__(self, scope: core.Construct, id: str, 
+                vpc,
+                #auto scaling group contains a collection of EC2 instances that share similar characteristics and are 
+                #treated as a logical grouping for the purposes of fleet management and dynamic scaling
+                asg_min=2,
+                asg_max=5,
+                #ec2 instance typee
+                ec2_type="t3.micro",
+                #web app instance uses user_data
+                user_data="",
+                kwargs) -> None:
+       
+        super().__init__(scope, id, kwargs)
+        
+        #create bastion construct 
+        
+        bastion = ec2.BastionHostLinux(self, "Bastion",
+                                        vpc=vpc,
+                                        #subnet bastion host will be provisioned in, specifies the bastion host will be provisioned in the first private 
+                                        #subnet of the vpc 
+                                        subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE),
+                                        instance_name = "Bastion Host",
+                                        instance_type = ec2.InstanceType(instance_type_identifier=ec2_type)
+                                        )
+        
+        #policy our auto scaling instance uses so we can connect to them via session manager
+        ssm_policy = iam.PolicyStatement(
+           #Allow these actions on the resources 
+            effect=iam.Effect.ALLOW,
+            resources = ["*"]
+            action = ["ssmmessages:*", "ssm:UpdateInstanceInformation", "ec2messages:*"]
+            
+            )
+        alb = elb.ApplicationLoadBalancer(self, "ALB"
+                                            vpc = vpc
+                                            internet_facing=True,
+                                            load_balancer_name = "myALB"
+                                            )
+        
+        #specify we are allowing all ipv4 addresses to connect to application load balancer on port 80
+        #Needs to be publicaly accessable because this is what the customer will access
+        alb.connections.allow_from_any_ipv4(ec2.Port.tcp(80),
+                                            "Internet access ALB 80"
+                                            )
+        
+        #add listener so we open up port 80 on this load balancer
+        #A listener is a process that checks for connection requests, using the protocol and port that you configure. 
+        #The rules that you define for a listener determine how the load balancer routes requests to its registered targets.
+        listener = alb.add_listener("Web"
+                                    port=80,
+                                    open=True
+                                    )
+          
+        #generation of linux instance                          
+        linux_ami = ec2.AmazonLinuxImage(generation=ec2.AmazonLinuxGeneration.AMAZON_LINUX_2,
+                                        #edition for amazon linux instance
+                                        edition = ec2.AmazonLinuxEdition.STANDARD,
+                                        #virutalization technology
+                                        virtualization = ec2.AmazonLinuxVirt.HVM,
+                                        #storage for the instance
+                                        storage = ec2.AmazonLinuxStorage.GENERAL_PURPOSE
+                                        )
+        
+        #create auto scaling group
+        self.asg = autoscaling.AutoScalingGroup(self, "Globomantics-Web",
+                                                vpc = vpc, 
+                                                #cdk will detect all private subnets and add them to the auto scaling config
+                                                vpc_subnets = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE),
+                                                instance_type = ec2.InstanceType(instance_type_identifier=ec2_type),
+                                                #a supported and maintained image provided by AWS that provides the information required to launch an instance
+                                                machine_image = linux_ami,
+                                                user_data = ec2.UserData.custom(user_data)
+                                                desired_capacity = asg_min,
+                                                min_capacity = asg_min,
+                                                max_capacity = asg_max,
+                                                )
+        
+        #use the policy created earlier to create a role to auto scaling group
+        self.asg.add_to_role_policy(ssm_policy)
+        
+        #allow connections from the load balancer to the ec2 instance
+        self.asg.connections.allow_from(alb, ec2.Port.tcp(80), "ALB access port 80 of EC2 in autoscaling group")
+        
+        #add a target group to listener and pass port 80 of asg as the target for listener
+        listener.add_targets("addTargetGroup",
+                                port=80,
+                                targets=[self.asg]
+                                )
+                                
+        #add cfn output is a value that the outpuut section of cloud formation will display (outputting the alb dns name)
+        core.CfnOutput(self, "ElbEndpoint",
+                        value = alb.load_balancer_dns
+                        )
